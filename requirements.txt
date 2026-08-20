@@ -1,5 +1,3 @@
 Flask
 gunicorn
-SpeechRecognition
-pydub
-openai
+faster-whisper
