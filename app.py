@@ -6,7 +6,7 @@ import tempfile
 app = Flask(__name__)
 
 # =====================================================
-# WHISPER MODEL
+# WHISPER
 # =====================================================
 
 print("Loading Whisper model...")
@@ -33,6 +33,7 @@ def home():
 
 @app.route("/health")
 def health():
+
     return jsonify({
         "status": "online",
         "speech_engine": "local faster-whisper"
@@ -49,6 +50,10 @@ def upload_audio():
 
     try:
 
+        # -------------------------------------------------
+        # RECEIVE WAV
+        # -------------------------------------------------
+
         audio_data = request.get_data()
 
         if not audio_data:
@@ -64,9 +69,9 @@ def upload_audio():
         print("==============================")
         print("Bytes:", len(audio_data))
 
-        # ---------------------------------------------
-        # TEMP WAV FILE
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # SAVE TEMP WAV
+        # -------------------------------------------------
 
         with tempfile.NamedTemporaryFile(
             suffix=".wav",
@@ -78,9 +83,15 @@ def upload_audio():
 
         print("Transcribing...")
 
-        # ---------------------------------------------
-        # WHISPER
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # FASTER WHISPER
+        # -------------------------------------------------
+        #
+        # language=None:
+        # Hindi -> Hindi
+        # English -> English
+        # Mixed speech -> automatic detection
+        #
 
         segments, info = model.transcribe(
             temp_file,
@@ -89,15 +100,30 @@ def upload_audio():
             vad_filter=True
         )
 
+        # -------------------------------------------------
+        # COLLECT TEXT
+        # -------------------------------------------------
+
         text_parts = []
 
         for segment in segments:
 
-            text_parts.append(
-                segment.text.strip()
-            )
+            part = segment.text.strip()
+
+            if part:
+                text_parts.append(part)
 
         text = " ".join(text_parts).strip()
+
+        # -------------------------------------------------
+        # SERVER LOG
+        # -------------------------------------------------
+
+        print()
+        print("==============================")
+        print("DETECTED LANGUAGE")
+        print("==============================")
+        print(info.language)
 
         print()
         print("==============================")
@@ -106,9 +132,9 @@ def upload_audio():
         print(text)
         print("==============================")
 
-        # ---------------------------------------------
-        # EMPTY SPEECH
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # EMPTY
+        # -------------------------------------------------
 
         if not text:
 
@@ -117,9 +143,9 @@ def upload_audio():
                 "message": "Speech not understood"
             }), 400
 
-        # ---------------------------------------------
-        # RESPONSE
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # SEND TO ESP32
+        # -------------------------------------------------
 
         return jsonify({
             "status": "ok",
@@ -130,9 +156,10 @@ def upload_audio():
 
         print()
         print("==============================")
-        print("ERROR")
+        print("SERVER ERROR")
         print("==============================")
         print(str(e))
+        print("==============================")
 
         return jsonify({
             "status": "error",
@@ -141,16 +168,21 @@ def upload_audio():
 
     finally:
 
+        # -------------------------------------------------
+        # DELETE TEMP FILE
+        # -------------------------------------------------
+
         if temp_file:
 
             try:
                 os.remove(temp_file)
-            except:
+
+            except Exception:
                 pass
 
 
 # =====================================================
-# START
+# START SERVER
 # =====================================================
 
 if __name__ == "__main__":
