@@ -1,23 +1,9 @@
 from flask import Flask, request, jsonify
-from faster_whisper import WhisperModel
 import os
-import tempfile
+import speech_recognition as sr
 
 app = Flask(__name__)
 
-# =====================================================
-# WHISPER
-# =====================================================
-
-print("Loading Whisper model...")
-
-model = WhisperModel(
-    "base",
-    device="cpu",
-    compute_type="int8"
-)
-
-print("Whisper model loaded!")
 
 # =====================================================
 # HOME
@@ -27,17 +13,40 @@ print("Whisper model loaded!")
 def home():
     return "ESP32 Voice Server is ONLINE!"
 
+
 # =====================================================
 # HEALTH
 # =====================================================
 
 @app.route("/health")
 def health():
+    return jsonify({
+        "status": "online"
+    })
+
+
+# =====================================================
+# TEST
+# =====================================================
+
+@app.route("/test", methods=["POST"])
+def test():
+
+    data = request.get_json(silent=True)
+
+    if not data:
+        return jsonify({
+            "status": "error",
+            "message": "No JSON received"
+        }), 400
+
+    print("ESP32 DATA:", data)
 
     return jsonify({
-        "status": "online",
-        "speech_engine": "local faster-whisper"
+        "status": "ok",
+        "message": "Data received"
     })
+
 
 # =====================================================
 # UPLOAD AUDIO
@@ -46,13 +55,7 @@ def health():
 @app.route("/uploadAudio", methods=["POST"])
 def upload_audio():
 
-    temp_file = None
-
     try:
-
-        # -------------------------------------------------
-        # RECEIVE WAV
-        # -------------------------------------------------
 
         audio_data = request.get_data()
 
@@ -63,67 +66,102 @@ def upload_audio():
                 "message": "No audio received"
             }), 400
 
+
         print()
         print("==============================")
         print("AUDIO RECEIVED")
         print("==============================")
         print("Bytes:", len(audio_data))
 
-        # -------------------------------------------------
-        # SAVE TEMP WAV
-        # -------------------------------------------------
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".wav",
-            delete=False
-        ) as f:
+        # =================================================
+        # SAVE WAV
+        # =================================================
 
+        filename = "/tmp/audio.wav"
+
+        with open(filename, "wb") as f:
             f.write(audio_data)
-            temp_file = f.name
 
-        print("Transcribing...")
 
-        # -------------------------------------------------
-        # FASTER WHISPER
-        # -------------------------------------------------
-        #
-        # language=None:
-        # Hindi -> Hindi
-        # English -> English
-        # Mixed speech -> automatic detection
-        #
+        recognizer = sr.Recognizer()
 
-        segments, info = model.transcribe(
-            temp_file,
-            beam_size=5,
-            language=None,
-            vad_filter=True
-        )
 
-        # -------------------------------------------------
-        # COLLECT TEXT
-        # -------------------------------------------------
+        # =================================================
+        # READ AUDIO
+        # =================================================
 
-        text_parts = []
+        with sr.AudioFile(filename) as source:
 
-        for segment in segments:
+            audio = recognizer.record(source)
 
-            part = segment.text.strip()
 
-            if part:
-                text_parts.append(part)
+        # =================================================
+        # FIRST TRY: HINDI
+        # =================================================
 
-        text = " ".join(text_parts).strip()
+        text = None
 
-        # -------------------------------------------------
-        # SERVER LOG
-        # -------------------------------------------------
+        try:
 
-        print()
-        print("==============================")
-        print("DETECTED LANGUAGE")
-        print("==============================")
-        print(info.language)
+            text = recognizer.recognize_google(
+                audio,
+                language="hi-IN"
+            )
+
+            print()
+            print("HINDI RESULT:")
+            print(text)
+
+        except sr.UnknownValueError:
+
+            text = None
+
+        except sr.RequestError as e:
+
+            return jsonify({
+                "status": "error",
+                "message": "Speech service error",
+                "details": str(e)
+            }), 500
+
+
+        # =================================================
+        # IF HINDI FAILED -> ENGLISH
+        # =================================================
+
+        if not text:
+
+            try:
+
+                text = recognizer.recognize_google(
+                    audio,
+                    language="en-IN"
+                )
+
+                print()
+                print("ENGLISH RESULT:")
+                print(text)
+
+            except sr.UnknownValueError:
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Speech not understood"
+                }), 400
+
+            except sr.RequestError as e:
+
+                return jsonify({
+                    "status": "error",
+                    "message": "Speech service error",
+                    "details": str(e)
+                }), 500
+
+
+        # =================================================
+        # FINAL RESULT
+        # =================================================
 
         print()
         print("==============================")
@@ -132,57 +170,35 @@ def upload_audio():
         print(text)
         print("==============================")
 
-        # -------------------------------------------------
-        # EMPTY
-        # -------------------------------------------------
-
-        if not text:
-
-            return jsonify({
-                "status": "error",
-                "message": "Speech not understood"
-            }), 400
-
-        # -------------------------------------------------
-        # SEND TO ESP32
-        # -------------------------------------------------
 
         return jsonify({
             "status": "ok",
             "transcription": text
         })
 
+
+    # =====================================================
+    # ERRORS
+    # =====================================================
+
     except Exception as e:
 
         print()
         print("==============================")
-        print("SERVER ERROR")
+        print("ERROR")
         print("==============================")
         print(str(e))
         print("==============================")
+
 
         return jsonify({
             "status": "error",
             "message": str(e)
         }), 500
 
-    finally:
-
-        # -------------------------------------------------
-        # DELETE TEMP FILE
-        # -------------------------------------------------
-
-        if temp_file:
-
-            try:
-                os.remove(temp_file)
-
-            except Exception:
-                pass
-
 
 # =====================================================
-# START SERVER
+# START
 # =====================================================
 
 if __name__ == "__main__":
