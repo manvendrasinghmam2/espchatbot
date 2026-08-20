@@ -84,11 +84,15 @@ def upload_audio():
             f.write(audio_data)
 
 
+        # =================================================
+        # SPEECH RECOGNIZER
+        # =================================================
+
         recognizer = sr.Recognizer()
 
 
         # =================================================
-        # READ AUDIO
+        # READ WAV
         # =================================================
 
         with sr.AudioFile(filename) as source:
@@ -97,7 +101,7 @@ def upload_audio():
 
 
         # =================================================
-        # FIRST TRY: HINDI
+        # ENGLISH FIRST
         # =================================================
 
         text = None
@@ -106,16 +110,18 @@ def upload_audio():
 
             text = recognizer.recognize_google(
                 audio,
-                language="hi-IN"
+                language="en-IN"
             )
 
             print()
-            print("HINDI RESULT:")
+            print("ENGLISH RESULT:")
             print(text)
+
 
         except sr.UnknownValueError:
 
             text = None
+
 
         except sr.RequestError as e:
 
@@ -127,7 +133,7 @@ def upload_audio():
 
 
         # =================================================
-        # IF HINDI FAILED -> ENGLISH
+        # IF ENGLISH FAILED -> HINDI
         # =================================================
 
         if not text:
@@ -136,12 +142,13 @@ def upload_audio():
 
                 text = recognizer.recognize_google(
                     audio,
-                    language="en-IN"
+                    language="hi-IN"
                 )
 
                 print()
-                print("ENGLISH RESULT:")
+                print("HINDI RESULT:")
                 print(text)
+
 
             except sr.UnknownValueError:
 
@@ -149,6 +156,7 @@ def upload_audio():
                     "status": "error",
                     "message": "Speech not understood"
                 }), 400
+
 
             except sr.RequestError as e:
 
@@ -178,7 +186,7 @@ def upload_audio():
 
 
     # =====================================================
-    # ERRORS
+    # ERROR
     # =====================================================
 
     except Exception as e:
