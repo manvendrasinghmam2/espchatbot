@@ -1,9 +1,17 @@
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, Response
 import os
 import json
-import speech_recognition as sr
+from openai import OpenAI
 
 app = Flask(__name__)
+
+# =====================================================
+# OPENAI
+# =====================================================
+
+client = OpenAI(
+    api_key=os.environ.get("OPENAI_API_KEY")
+)
 
 
 # =====================================================
@@ -21,13 +29,17 @@ def home():
 
 @app.route("/health")
 def health():
-    return jsonify({
-        "status": "online"
-    })
+
+    return Response(
+        json.dumps({
+            "status": "online"
+        }, ensure_ascii=False),
+        content_type="application/json; charset=utf-8"
+    )
 
 
 # =====================================================
-# AUDIO UPLOAD
+# UPLOAD AUDIO
 # =====================================================
 
 @app.route("/uploadAudio", methods=["POST"])
@@ -36,16 +48,10 @@ def upload_audio():
     try:
 
         # ---------------------------------------------
-        # RECEIVE AUDIO FROM ESP32
+        # RECEIVE ESP32 WAV
         # ---------------------------------------------
 
         audio_data = request.get_data()
-
-        print(
-            "Audio received:",
-            len(audio_data),
-            "bytes"
-        )
 
         if not audio_data:
 
@@ -69,28 +75,23 @@ def upload_audio():
 
 
         # ---------------------------------------------
-        # SPEECH RECOGNITION
+        # WHISPER TRANSCRIPTION
         # ---------------------------------------------
 
-        recognizer = sr.Recognizer()
+        with open(filename, "rb") as audio_file:
 
-        with sr.AudioFile(filename) as source:
+            transcription = client.audio.transcriptions.create(
+                model="gpt-4o-mini-transcribe",
+                file=audio_file
+            )
 
-            audio = recognizer.record(source)
 
-
-        print("Recognizing speech...")
+        text = transcription.text.strip()
 
 
         # ---------------------------------------------
-        # HINDI + ENGLISH
+        # SERVER LOG
         # ---------------------------------------------
-
-        text = recognizer.recognize_google(
-            audio,
-            language="hi-IN"
-        )
-
 
         print(
             "TRANSCRIPTION:",
@@ -99,7 +100,7 @@ def upload_audio():
 
 
         # ---------------------------------------------
-        # RETURN UTF-8 JSON
+        # SEND UTF-8 JSON TO ESP32
         # ---------------------------------------------
 
         response_data = {
@@ -118,53 +119,13 @@ def upload_audio():
 
 
     # =================================================
-    # SPEECH NOT UNDERSTOOD
-    # =================================================
-
-    except sr.UnknownValueError:
-
-        print(
-            "Speech not understood"
-        )
-
-        return Response(
-            json.dumps({
-                "status": "error",
-                "message": "Speech not understood"
-            }, ensure_ascii=False),
-            content_type="application/json; charset=utf-8"
-        ), 400
-
-
-    # =================================================
-    # GOOGLE SERVICE ERROR
-    # =================================================
-
-    except sr.RequestError as e:
-
-        print(
-            "Speech service error:",
-            str(e)
-        )
-
-        return Response(
-            json.dumps({
-                "status": "error",
-                "message": "Speech service error",
-                "details": str(e)
-            }, ensure_ascii=False),
-            content_type="application/json; charset=utf-8"
-        ), 500
-
-
-    # =================================================
-    # OTHER ERROR
+    # ERROR
     # =================================================
 
     except Exception as e:
 
         print(
-            "SERVER ERROR:",
+            "ERROR:",
             str(e)
         )
 
@@ -178,7 +139,7 @@ def upload_audio():
 
 
 # =====================================================
-# START SERVER
+# START
 # =====================================================
 
 if __name__ == "__main__":
