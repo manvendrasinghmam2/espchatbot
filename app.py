@@ -17,29 +17,15 @@ def health():
     })
 
 
-@app.route("/test", methods=["POST"])
-def test():
-    data = request.get_json(silent=True)
-
-    if not data:
-        return jsonify({
-            "status": "error",
-            "message": "No JSON received"
-        }), 400
-
-    print("ESP32 DATA:", data)
-
-    return jsonify({
-        "status": "ok",
-        "message": "Data received"
-    })
-
-
 @app.route("/uploadAudio", methods=["POST"])
 def upload_audio():
 
     try:
+
+        # ESP32 se complete WAV receive karo
         audio_data = request.get_data()
+
+        print("Audio received:", len(audio_data), "bytes")
 
         if not audio_data:
             return jsonify({
@@ -47,20 +33,21 @@ def upload_audio():
                 "message": "No audio received"
             }), 400
 
-        print("Audio received:", len(audio_data), "bytes")
-
         # Temporary WAV file
         filename = "/tmp/audio.wav"
 
         with open(filename, "wb") as f:
             f.write(audio_data)
 
+        # Speech recognition
         recognizer = sr.Recognizer()
 
         with sr.AudioFile(filename) as source:
+
             audio = recognizer.record(source)
 
-        # Hindi + English
+        print("Recognizing speech...")
+
         text = recognizer.recognize_google(
             audio,
             language="hi-IN"
@@ -75,12 +62,16 @@ def upload_audio():
 
     except sr.UnknownValueError:
 
+        print("Speech not understood")
+
         return jsonify({
             "status": "error",
             "message": "Speech not understood"
         }), 400
 
     except sr.RequestError as e:
+
+        print("Google speech service error:", e)
 
         return jsonify({
             "status": "error",
@@ -90,7 +81,7 @@ def upload_audio():
 
     except Exception as e:
 
-        print("ERROR:", str(e))
+        print("SERVER ERROR:", str(e))
 
         return jsonify({
             "status": "error",
@@ -99,7 +90,11 @@ def upload_audio():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+
+    port = int(
+        os.environ.get("PORT", 10000)
+    )
+
     app.run(
         host="0.0.0.0",
         port=port
