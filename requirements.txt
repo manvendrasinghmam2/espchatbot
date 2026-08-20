@@ -1,3 +1,4 @@
 Flask
 gunicorn
-faster-whisper
+SpeechRecognition
+pydub
