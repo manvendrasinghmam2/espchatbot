@@ -1,18 +1,23 @@
-from flask import Flask, request, Response
+from flask import Flask, request, jsonify
+from faster_whisper import WhisperModel
 import os
-import json
-from openai import OpenAI
+import tempfile
 
 app = Flask(__name__)
 
 # =====================================================
-# OPENAI
+# WHISPER MODEL
 # =====================================================
 
-client = OpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY")
+print("Loading Whisper model...")
+
+model = WhisperModel(
+    "base",
+    device="cpu",
+    compute_type="int8"
 )
 
+print("Whisper model loaded!")
 
 # =====================================================
 # HOME
@@ -22,21 +27,16 @@ client = OpenAI(
 def home():
     return "ESP32 Voice Server is ONLINE!"
 
-
 # =====================================================
 # HEALTH
 # =====================================================
 
 @app.route("/health")
 def health():
-
-    return Response(
-        json.dumps({
-            "status": "online"
-        }, ensure_ascii=False),
-        content_type="application/json; charset=utf-8"
-    )
-
+    return jsonify({
+        "status": "online",
+        "speech_engine": "local faster-whisper"
+    })
 
 # =====================================================
 # UPLOAD AUDIO
@@ -45,97 +45,108 @@ def health():
 @app.route("/uploadAudio", methods=["POST"])
 def upload_audio():
 
-    try:
+    temp_file = None
 
-        # ---------------------------------------------
-        # RECEIVE ESP32 WAV
-        # ---------------------------------------------
+    try:
 
         audio_data = request.get_data()
 
         if not audio_data:
 
-            return Response(
-                json.dumps({
-                    "status": "error",
-                    "message": "No audio received"
-                }, ensure_ascii=False),
-                content_type="application/json; charset=utf-8"
-            ), 400
+            return jsonify({
+                "status": "error",
+                "message": "No audio received"
+            }), 400
 
+        print()
+        print("==============================")
+        print("AUDIO RECEIVED")
+        print("==============================")
+        print("Bytes:", len(audio_data))
 
         # ---------------------------------------------
-        # SAVE WAV
+        # TEMP WAV FILE
         # ---------------------------------------------
 
-        filename = "/tmp/audio.wav"
+        with tempfile.NamedTemporaryFile(
+            suffix=".wav",
+            delete=False
+        ) as f:
 
-        with open(filename, "wb") as f:
             f.write(audio_data)
+            temp_file = f.name
 
+        print("Transcribing...")
 
         # ---------------------------------------------
-        # WHISPER TRANSCRIPTION
+        # WHISPER
         # ---------------------------------------------
 
-        with open(filename, "rb") as audio_file:
+        segments, info = model.transcribe(
+            temp_file,
+            beam_size=5,
+            language=None,
+            vad_filter=True
+        )
 
-            transcription = client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe",
-                file=audio_file
+        text_parts = []
+
+        for segment in segments:
+
+            text_parts.append(
+                segment.text.strip()
             )
 
+        text = " ".join(text_parts).strip()
 
-        text = transcription.text.strip()
-
-
-        # ---------------------------------------------
-        # SERVER LOG
-        # ---------------------------------------------
-
-        print(
-            "TRANSCRIPTION:",
-            text
-        )
-
+        print()
+        print("==============================")
+        print("TRANSCRIPTION")
+        print("==============================")
+        print(text)
+        print("==============================")
 
         # ---------------------------------------------
-        # SEND UTF-8 JSON TO ESP32
+        # EMPTY SPEECH
         # ---------------------------------------------
 
-        response_data = {
+        if not text:
+
+            return jsonify({
+                "status": "error",
+                "message": "Speech not understood"
+            }), 400
+
+        # ---------------------------------------------
+        # RESPONSE
+        # ---------------------------------------------
+
+        return jsonify({
             "status": "ok",
             "transcription": text
-        }
-
-
-        return Response(
-            json.dumps(
-                response_data,
-                ensure_ascii=False
-            ),
-            content_type="application/json; charset=utf-8"
-        )
-
-
-    # =================================================
-    # ERROR
-    # =================================================
+        })
 
     except Exception as e:
 
-        print(
-            "ERROR:",
-            str(e)
-        )
+        print()
+        print("==============================")
+        print("ERROR")
+        print("==============================")
+        print(str(e))
 
-        return Response(
-            json.dumps({
-                "status": "error",
-                "message": str(e)
-            }, ensure_ascii=False),
-            content_type="application/json; charset=utf-8"
-        ), 500
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+    finally:
+
+        if temp_file:
+
+            try:
+                os.remove(temp_file)
+            except:
+                pass
 
 
 # =====================================================
